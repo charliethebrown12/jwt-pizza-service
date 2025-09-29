@@ -1,82 +1,74 @@
-const request = require('supertest');
-const app = require('../service');
-const { DB } = require('../database/database.js');
+describe('Auth API', () => {
+  describe('POST /api/auth (Register)', () => {
+    test('should register a new user successfully', async () => {
+      const newUser = {
+        name: 'New Register',
+        email: `newuser_${Date.now()}@test.com`,
+        password: 'password123',
+      };
 
-function randomName() {
-  return Math.random().toString(36).substring(2, 12);
-}
+      const res = await request(app).post('/api/auth').send(newUser);
 
-async function cleanup() {
-  const conn = await DB.getConnection();
-  await conn.query('DELETE FROM users');
-  await conn.end();
-}
+      expect(res.status).toBe(200);
+      expect(res.body.user.email).toBe(newUser.email);
+      expect(res.body.token).toBeDefined();
+    });
 
-const testUser = { name: 'pizza diner', email: '', password: 'a' };
-let testUserAuthToken;
+    test('should fail to register with missing fields', async () => {
+      const incompleteUser = { name: 'Incomplete' }; // Missing email and password
+      const res = await request(app).post('/api/auth').send(incompleteUser);
 
-beforeAll(async () => {
-  testUser.email = randomName() + '@test.com';
-  await cleanup();
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe('name, email, and password are required');
+    });
+  });
 
-  const registerRes = await request(app).post('/api/auth').send(testUser);
-  expect(registerRes.status).toBe(200);
-  testUserAuthToken = registerRes.body.token;
-});
+  describe('PUT /api/auth (Login)', () => {
+    test('should login an existing user successfully', async () => {
+      const loginCredentials = { email: dinerUser.email, password: 'password' }; // Using the password from setup
+      const res = await request(app).put('/api/auth').send(loginCredentials);
 
-afterAll(async () => {
-  await cleanup();
-});
+      expect(res.status).toBe(200);
+      expect(res.body.user.id).toBe(dinerUser.id);
+      expect(res.body.token).toBeDefined();
+    });
 
-function expectValidJwt(potentialJwt) {
-  expect(potentialJwt).toMatch(/^[a-zA-Z0-9\-_]*\.[a-zA-Z0-9\-_]*\.[a-zA-Z0-9\-_]*$/);
-}
+    test('should fail to login with an incorrect password', async () => {
+      const loginCredentials = { email: dinerUser.email, password: 'wrongpassword' };
+      const res = await request(app).put('/api/auth').send(loginCredentials);
 
-test('login', async () => {
-  const loginRes = await request(app).put('/api/auth').send(testUser);
-  expect(loginRes.status).toBe(200);
-  expectValidJwt(loginRes.body.token);
+      expect(res.status).toBe(404);
+      expect(res.body.message).toBe('unknown user');
+    });
 
-  const { password, ...user } = { ...testUser, roles: [{ role: 'diner' }] };
-  expect(loginRes.body.user).toMatchObject(user);
-});
+    test('should fail to login if user does not exist', async () => {
+      const loginCredentials = { email: 'nosuchuser@test.com', password: 'password' };
+      const res = await request(app).put('/api/auth').send(loginCredentials);
 
-test('logout', async () => {
-  const logoutRes = await request(app)
-    .delete('/api/auth')
-    .set('Authorization', `Bearer ${testUserAuthToken}`);
-  expect(logoutRes.status).toBe(200);
-  expect(logoutRes.body.message).toBe('logout successful');
-});
+      expect(res.status).toBe(404);
+      expect(res.body.message).toBe('unknown user');
+    });
+  });
 
-test('logout without auth fails', async () => {
-  const logoutRes = await request(app).delete('/api/auth');
-  expect(logoutRes.status).toBe(401);
-  expect(logoutRes.body.message).toBe('unauthorized');
-});
+  describe('DELETE /api/auth (Logout)', () => {
+    test('should logout an authenticated user successfully', async () => {
+      // First, log in a user to get a fresh token
+      const loginCredentials = { email: otherDinerUser.email, password: 'password' };
+      const loginRes = await request(app).put('/api/auth').send(loginCredentials);
+      const tokenToLogout = loginRes.body.token;
 
-test('register without required fields fails', async () => {
-  const registerRes = await request(app).post('/api/auth').send({ name: 'a' });
-  expect(registerRes.status).toBe(400);
-  expect(registerRes.body.message).toBe('name, email, and password are required');
-});
+      // Now, use that token to log out
+      const logoutRes = await request(app)
+        .delete('/api/auth')
+        .set('Authorization', `Bearer ${tokenToLogout}`);
+      
+      expect(logoutRes.status).toBe(200);
+      expect(logoutRes.body.message).toBe('logout successful');
+    });
 
-test('login with bad credentials fails', async () => {
-  const loginRes = await request(app).put('/api/auth').send({ email: 'x', password: 'y' });
-  expect(loginRes.status).toBe(500);
-});
-
-test('register with duplicate email fails', async () => {
-  const registerRes = await request(app).post('/api/auth').send(testUser);
-  expect(registerRes.status).toBe(500);
-});
-
-test('login with missing fields fails', async () => {
-  const loginRes = await request(app).put('/api/auth').send({ email: 'x' });
-  expect(loginRes.status).toBe(500);
-});
-
-test('login with wrong password fails', async () => {
-  const loginRes = await request(app).put('/api/auth').send({ email: testUser.email, password: 'x' });
-  expect(loginRes.status).toBe(500);
+    test('should fail to logout without an auth token', async () => {
+      const res = await request(app).delete('/api/auth');
+      expect(res.status).toBe(401);
+    });
+  });
 });

@@ -50,6 +50,11 @@ class DB {
         }
       }
       return { ...user, id: userId, password: undefined };
+    } catch (err) {
+      if (err.code === 'ER_DUP_ENTRY') {
+        throw new StatusCodeError('email already registered', 409);
+      }
+      throw err;
     } finally {
       connection.end();
     }
@@ -77,6 +82,11 @@ class DB {
 
   async updateUser(userId, name, email, password) {
     const connection = await this.getConnection();
+  try {
+    const [userResult] = await connection.execute('SELECT email FROM user WHERE id=?', [userId]);
+    if (userResult.length === 0) {
+      throw new StatusCodeError('user not found', 404);
+    }
     try {
       const params = [];
       if (password) {
@@ -93,11 +103,17 @@ class DB {
         const query = `UPDATE user SET ${params.join(', ')} WHERE id=${userId}`;
         await this.query(connection, query);
       }
-      return this.getUser(email, password);
-    } finally {
-      connection.end();
+      return this.getUser(email || userResult[0].email);
+    } catch (err) {
+      if (err.code === 'ER_DUP_ENTRY') {
+        throw new StatusCodeError('email already registered', 409);
+      }
+      throw err;
     }
+  } finally {
+    connection.end();
   }
+}
 
   async loginUser(userId, token) {
     token = this.getTokenSignature(token);
@@ -218,7 +234,7 @@ class DB {
       }
 
       for (const franchise of franchises) {
-        if (authUser?.isRole(Role.Admin)) {
+        if (authUser.isRole(Role.Admin)) {
           await this.getFranchise(franchise);
         } else {
           franchise.stores = await this.query(connection, `SELECT id, name FROM store WHERE franchiseId=?`, [franchise.id]);
@@ -360,6 +376,30 @@ class DB {
     const [rows] = await connection.execute(`SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?`, [config.db.connection.database]);
     return rows.length > 0;
   }
+
+  async cleanupTestDatabase() {
+    const connection = await this.getConnection();
+    try {
+      // Temporarily disable foreign key checks to allow truncating tables in any order
+      await this.query(connection, 'SET FOREIGN_KEY_CHECKS = 0;');
+      
+      await this.query(connection, 'TRUNCATE TABLE auth;');
+      await this.query(connection, 'TRUNCATE TABLE user;');
+      await this.query(connection, 'TRUNCATE TABLE menu;');
+      await this.query(connection, 'TRUNCATE TABLE franchise;');
+      await this.query(connection, 'TRUNCATE TABLE store;');
+      await this.query(connection, 'TRUNCATE TABLE userRole;');
+      await this.query(connection, 'TRUNCATE TABLE dinerOrder;');
+      await this.query(connection, 'TRUNCATE TABLE orderItem;');
+
+      // Re-enable foreign key checks
+      await this.query(connection, 'SET FOREIGN_KEY_CHECKS = 1;');
+    } finally {
+      connection.end();
+    }
+  }
+
+// ... rest of your DB class methods
 }
 
 const db = new DB();
