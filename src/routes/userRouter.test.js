@@ -42,5 +42,45 @@ describe('User API', () => {
         expect(res.status).toBe(200);
         expect(res.body.user.name).toBe('Admin Updated Name');
     });
-  });
+    test('list users unauthorized', async () => {
+      const listUsersRes = await request(app).get('/api/user');
+      expect(listUsersRes.status).toBe(401);
+    });
+
+    test('list users', async () => {
+      const [user, userToken] = await registerUser(request(app));
+      const listUsersRes = await request(app)
+        .get('/api/user')
+        .set('Authorization', 'Bearer ' + userToken);
+      expect(listUsersRes.status).toBe(200);
+    });
+
+    test('delete user unauthorized', async () => {
+      const [user, userToken] = await registerUser(request(app));
+      const deleteRes = await request(app).delete(`/api/user/${user.id}`).set('Authorization', 'Bearer ' + userToken);
+      expect(deleteRes.status).toBe(403);
+    });
+
+    test('delete user by admin', async () => {
+      const [user, userToken] = await registerUser(request(app));
+      const deleteRes = await request(app).delete(`/api/user/${user.id}`).set('Authorization', 'Bearer ' + adminToken);
+      expect(deleteRes.status).toBe(200);
+    });
+
+    async function registerUser(service) {
+      const testUser = {
+        name: 'pizza diner',
+        email: `${randomName()}@test.com`,
+        password: 'a',
+      };
+      const registerRes = await service.post('/api/auth').send(testUser);
+      registerRes.body.user.password = testUser.password;
+
+      return [registerRes.body.user, registerRes.body.token];
+    }
+
+    function randomName() {
+      return Math.random().toString(36).substring(2, 12);
+    }
+      });
 });
