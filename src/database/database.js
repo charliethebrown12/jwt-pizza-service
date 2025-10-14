@@ -153,7 +153,7 @@ class DB {
         await connection.commit();
       } catch (err) {
         await connection.rollback();
-        throw new StatusCodeError('unable to delete user', 500);
+        throw new StatusCodeError('unable to delete user: ' + err.message, 500);
       }
     } finally {
       connection.end();

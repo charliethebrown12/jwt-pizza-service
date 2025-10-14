@@ -47,11 +47,18 @@ describe('User API', () => {
       expect(listUsersRes.status).toBe(401);
     });
 
-    test('list users', async () => {
-      const [user, userToken] = await registerUser(request(app));
+    test('list users forbidden for non-admin', async () => {
+      const [userToken] = await registerUser(request(app));
       const listUsersRes = await request(app)
         .get('/api/user')
         .set('Authorization', 'Bearer ' + userToken);
+      expect(listUsersRes.status).toBe(401);
+    });
+
+    test('list users by admin', async () => {
+      const listUsersRes = await request(app)
+        .get('/api/user')
+        .set('Authorization', 'Bearer ' + adminToken);
       expect(listUsersRes.status).toBe(200);
     });
 
@@ -62,7 +69,7 @@ describe('User API', () => {
     });
 
     test('delete user by admin', async () => {
-      const [user, userToken] = await registerUser(request(app));
+      const [user] = await registerUser(request(app));
       const deleteRes = await request(app).delete(`/api/user/${user.id}`).set('Authorization', 'Bearer ' + adminToken);
       expect(deleteRes.status).toBe(200);
     });

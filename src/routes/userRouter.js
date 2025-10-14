@@ -80,7 +80,12 @@ userRouter.get(
     const limit = Number(req.query.limit) || 10;
     const name = req.query.name || '*';
 
-  const [users, more] = await DB.getUsers(req.user, page, limit, name);
+    // Only admins may list users
+    if (!req.user.isRole(Role.Admin)) {
+      return res.status(403).json({ message: 'unauthorized' });
+    }
+
+    const [users, more] = await DB.getUsers(req.user, page, limit, name);
     res.json({ users, more });
   })
 );
