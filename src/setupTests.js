@@ -93,7 +93,7 @@ beforeAll(async () => {
             success = true;
             break;
           }
-        } catch (err) {
+        } catch {
           // likely user not created yet; wait and retry
         }
         // wait
