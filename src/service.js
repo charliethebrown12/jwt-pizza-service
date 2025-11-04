@@ -39,6 +39,17 @@ app.get('/', (req, res) => {
   });
 });
 
+// Expose Prometheus-style metrics endpoint if metrics helper is available
+const metrics = require('./metrics');
+app.get('/metrics', (req, res) => {
+  if (metrics && typeof metrics.prometheusExposition === 'function') {
+    res.set('Content-Type', 'text/plain; version=0.0.4');
+    res.send(metrics.prometheusExposition());
+  } else {
+    res.status(404).send('metrics not available');
+  }
+});
+
 app.use('*', (req, res) => {
   res.status(404).json({
     message: 'unknown endpoint',

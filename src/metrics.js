@@ -228,4 +228,52 @@ module.exports = {
       metricsStore.pizzaLatency.count += 1;
     }
   },
+  // Produce a Prometheus exposition-format text snapshot of current metrics (without resetting the store)
+  prometheusExposition: () => {
+    const lines = [];
+    // helper to add a metric with optional labels
+    const add = (name, value, labels = {}) => {
+      const labelStr = Object.keys(labels)
+        .map((k) => `${k}="${String(labels[k]).replace(/"/g, '\\"')}"`)
+        .join(',');
+      lines.push(`${name}${labelStr ? '{' + labelStr + '}' : ''} ${Number(value)}`);
+    };
+
+    // copy current store snapshot (avoid mutation)
+    const httpReqs = { ...metricsStore.httpRequests };
+    let totalRequests = 0;
+    for (const [m, c] of Object.entries(httpReqs)) {
+      add('http_requests_total', c, { method: m });
+      totalRequests += c;
+    }
+    add('http_requests_total', totalRequests, { method: 'ALL' });
+
+    add('auth_attempts_success_total', metricsStore.authAttempts.success);
+    add('auth_attempts_fail_total', metricsStore.authAttempts.fail);
+
+    add('active_users', metricsStore.activeUsers.size);
+
+    add('cpu_usage_percent', getCpuUsagePercentage());
+    add('memory_usage_percent', getMemoryUsagePercentage());
+
+    add('pizzas_sold_total', metricsStore.pizzaPurchases.sold);
+    add('pizza_failures_total', metricsStore.pizzaPurchases.failed);
+    add('pizza_revenue_total', metricsStore.pizzaPurchases.revenue);
+
+    const avgPizzaLatency = metricsStore.pizzaLatency.count > 0 ? metricsStore.pizzaLatency.sum / metricsStore.pizzaLatency.count : 0;
+    add('pizza_creation_latency_ms', parseFloat(avgPizzaLatency.toFixed(2)));
+
+    const avgAllEndpoints = metricsStore.endpointLatencyAll.count > 0 ? metricsStore.endpointLatencyAll.sum / metricsStore.endpointLatencyAll.count : 0;
+    add('endpoint_latency_ms', parseFloat(avgAllEndpoints.toFixed(2)), { endpoint: 'ALL' });
+
+    for (const [endpoint, agg] of metricsStore.endpointLatencyByPath.entries()) {
+      const avg = agg.count > 0 ? agg.sum / agg.count : 0;
+      // sanitize endpoint label value
+      add('endpoint_latency_ms', parseFloat(avg.toFixed(2)), { endpoint });
+    }
+
+    // add a timestamp line comment
+    lines.unshift(`# Metrics snapshot ${new Date().toISOString()}`);
+    return lines.join('\n') + '\n';
+  },
 };
