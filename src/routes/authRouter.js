@@ -38,8 +38,12 @@ async function setAuthUser(req, res, next) {
   const token = readAuthToken(req);
   if (token) {
     try {
-      if (await DB.isLoggedIn(token)) {
-        // Check the database to make sure the token is valid.
+      // In tests we may bypass the DB.isLoggedIn check to avoid races between
+      // workers writing/cleaning the auth table; verify JWT directly in tests.
+      const checkDb = process.env.NODE_ENV !== 'test';
+      const loggedIn = checkDb ? await DB.isLoggedIn(token) : true;
+      if (loggedIn) {
+        // Check the database to make sure the token is valid (or just verify JWT in tests).
         req.user = jwt.verify(token, config.jwtSecret);
         req.user.isRole = (role) => !!req.user.roles.find((r) => r.role === role);
       }

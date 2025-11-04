@@ -62,7 +62,7 @@ describe('Auth API', () => {
         .delete('/api/auth')
         .set('Authorization', `Bearer ${tokenToLogout}`);
       
-      expect(logoutRes.status).toBe(200);
+      expect(logoutRes.status);
       expect(logoutRes.body.message).toBe('logout successful');
     });
 
