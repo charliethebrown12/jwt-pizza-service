@@ -141,7 +141,6 @@ async function sendMetrics() {
     resetMetricsStore();
     if (process.env.NODE_ENV !== 'test') {
       // Keep logs quiet in tests
-      console.log('Sent metrics batch to Grafana');
     }
   } catch (err) {
     if (process.env.NODE_ENV !== 'test') {
@@ -160,7 +159,6 @@ const SHOULD_ENABLE =
 if (SHOULD_ENABLE) {
   const METRICS_INTERVAL_MS = Number(process.env.METRICS_INTERVAL_MS || 10000);
   setInterval(sendMetrics, METRICS_INTERVAL_MS);
-  console.log(`Metrics reporting enabled. Interval ${METRICS_INTERVAL_MS}ms`);
 }
 
 function getEndpointKey(req) {

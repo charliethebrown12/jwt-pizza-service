@@ -13,7 +13,6 @@ global.fetch = jest.fn();
 
 beforeAll(async () => {
   try {
-    console.log('--- SETUP: Initializing database and creating users... ---');
 
     const isPrimary = process.env.JEST_WORKER_ID === '1' || !process.env.JEST_WORKER_ID;
 
@@ -45,8 +44,6 @@ beforeAll(async () => {
       await DB.loginUser(otherUserObj.id, otherToken);
       global.otherDinerToken = otherToken;
       global.otherDinerUser = otherUserObj;
-
-      console.log('--- SETUP: Users created successfully. ---');
     } else {
       // Non-primary workers wait until the primary has created the users.
       // Poll the database directly until the users exist, then create tokens locally.
