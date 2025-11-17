@@ -5,6 +5,7 @@ const franchiseRouter = require('./routes/franchiseRouter.js');
 const userRouter = require('./routes/userRouter.js');
 const version = require('./version.json');
 const config = require('./config.js');
+const logger = require('./logger');
 
 const app = express();
 app.use(express.json());
@@ -61,5 +62,38 @@ app.use((err, req, res, next) => {
   res.status(err.statusCode ?? 500).json({ message: err.message, stack: err.stack });
   next();
 });
+
+// Example helper used wherever you call the factory:
+async function callPizzaFactory(payload) {
+  const started = Date.now();
+  let ok = false;
+  let responseBody;
+  try {
+    const f = typeof fetch === 'function' ? fetch : (await import('node-fetch')).default;
+    const res = await f(`${config.factory.url}/order`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': config.factory.apiKey,
+      },
+      body: JSON.stringify(payload),
+    });
+    responseBody = await res.json().catch(() => ({}));
+    ok = res.ok;
+    await logger.logFactory(payload, responseBody, Date.now() - started, ok, ok ? undefined : `${res.status} ${res.statusText}`);
+    if (!res.ok) {
+      const err = new Error('Factory request failed');
+      err.status = res.status;
+      err.body = responseBody;
+      throw err;
+    }
+    return responseBody;
+  } catch (err) {
+    await logger.logFactory(payload, responseBody, Date.now() - started, false, err.message);
+    throw err;
+  }
+}
+
+// Export or use callPizzaFactory inside your order creation logic.
 
 module.exports = app;

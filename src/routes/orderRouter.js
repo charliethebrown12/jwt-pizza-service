@@ -83,6 +83,24 @@ orderRouter.post(
     const orderReq = req.body;
     const order = await DB.addDinerOrder(req.user, orderReq);
 
+    const started = Date.now();
+
+    // best-effort price estimate from request
+    let priceGuess = 0;
+    try {
+      if (Array.isArray(req.body?.items)) {
+        priceGuess = req.body.items.reduce((s, it) => s + Number(it.price || 0), 0);
+      } else if (typeof req.body?.total === 'number') {
+        priceGuess = Number(req.body.total);
+      }
+    } catch {}
+
+    res.once('finish', () => {
+      const latency = Date.now() - started;
+      const success = res.statusCode >= 200 && res.statusCode < 300;
+      metrics.trackPizzaPurchase(success, latency, success ? priceGuess : 0);
+    });
+
     const startTime = Date.now();
 
     const r = await fetch(`${config.factory.url}/api/order`, {

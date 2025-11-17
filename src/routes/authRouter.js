@@ -61,6 +61,17 @@ authRouter.authenticateToken = (req, res, next) => {
   next();
 };
 
+// Track auth attempts for register (POST /) and login (PUT /)
+authRouter.use((req, res, next) => {
+  if ((req.method === 'POST' || req.method === 'PUT') && req.path === '/') {
+    res.once('finish', () => {
+      const success = res.statusCode >= 200 && res.statusCode < 300;
+      metrics.trackAuthAttempt(success);
+    });
+  }
+  next();
+});
+
 // register
 authRouter.post(
   '/',
@@ -72,10 +83,8 @@ authRouter.post(
     try {
       const user = await DB.addUser({ name, email, password, roles: [{ role: Role.Diner }] });
       const auth = await setAuth(user);
-      metrics.trackAuthAttempt(true);
       res.json({ user: user, token: auth });
     } catch (err) {
-      metrics.trackAuthAttempt(false);
       return res.status(err.statusCode).json({ message: err.message });
     }
   })
@@ -89,10 +98,8 @@ authRouter.put(
       const { email, password } = req.body;
       const user = await DB.getUser(email, password);
       const auth = await setAuth(user);
-      metrics.trackAuthAttempt(true);
       res.json({ user: user, token: auth });
     } catch (err) {
-      metrics.trackAuthAttempt(false);
       return res.status(err.statusCode).json({ message: err.message });
     }
   })
