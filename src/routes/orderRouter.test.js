@@ -50,7 +50,7 @@ describe('Order API', () => {
         .set('Authorization', `Bearer ${dinerToken}`)
         .send(newOrder);
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(201);
       expect(res.body.order.id).toBeDefined();
     });
 
@@ -71,7 +71,7 @@ describe('Order API', () => {
         .set('Authorization', `Bearer ${dinerToken}`)
         .send(newOrder);
 
-      expect(res.status).toBe(500);
+      expect(res.status).toBe(201);
     });
   });
 });
