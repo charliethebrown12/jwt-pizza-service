@@ -1,4 +1,9 @@
 const express = require('express');
+const { Role, DB } = require('../database/database.js');
+const { authRouter } = require('./authRouter.js');
+const { asyncHandler, StatusCodeError } = require('../endpointHelper.js');
+const metrics = require('../metrics');
+
 const franchiseRouter = express.Router();
 
 franchiseRouter.use(metrics.requestTracker);
