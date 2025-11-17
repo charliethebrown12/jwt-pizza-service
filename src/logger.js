@@ -9,10 +9,6 @@ function hasLoggingConfig() {
   return Boolean(c.url && c.apiKey && (c.userId || String(c.userId) === '0') && c.source);
 }
 
-function b64(s) {
-  return Buffer.from(s).toString('base64');
-}
-
 function sanitize(obj) {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj !== 'object') return obj;
@@ -31,28 +27,25 @@ function sanitize(obj) {
 }
 
 async function sendToLoki(streams) {
-  if (SAFE_ENV || !hasLoggingConfig()) return;
+  if (SAFE_ENV) return;
+  if (!hasLoggingConfig()) return;
   const { url, apiKey, userId } = config.logging;
-
-  const payload = { streams };
-  const auth = b64(`${userId}:${apiKey}`);
-
-  const f = typeof fetch === 'function' ? fetch : (await import('node-fetch')).default;
-
-  const res = await f(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Basic ${auth}`,
-    },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    // keep quiet in production, but do not throw to avoid impacting requests
-    if (process.env.NODE_ENV !== 'production') {
-      const text = await res.text().catch(() => '');
-      console.warn('Loki push failed:', res.status, res.statusText, text);
+  const auth = Buffer.from(`${userId}:${apiKey}`).toString('base64');
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${auth}`,
+      },
+      body: JSON.stringify({ streams }),
+    });
+    // Optional: silent on success/fail
+    if (!res.ok && process.env.NODE_ENV !== 'production') {
+      console.warn('Loki push failed', res.status);
     }
+  } catch (e) {
+    if (process.env.NODE_ENV !== 'production') console.warn('Loki push exception', e.message);
   }
 }
 

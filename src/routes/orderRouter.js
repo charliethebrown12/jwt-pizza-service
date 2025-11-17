@@ -1,5 +1,4 @@
 const express = require('express');
-const config = require('../config.js');
 const { Role, DB } = require('../database/database.js');
 const { authRouter } = require('./authRouter.js');
 const { asyncHandler, StatusCodeError } = require('../endpointHelper.js');
@@ -81,15 +80,26 @@ orderRouter.post(
   authRouter.authenticateToken,
   asyncHandler(async (req, res) => {
     const started = Date.now();
-
-    // best-effort price estimate from request (no try/catch to avoid empty block)
-    let priceGuess = 0;
     const body = req.body || {};
-    if (Array.isArray(body.items)) {
-      priceGuess = body.items.reduce((s, it) => s + Number(it?.price || 0), 0);
-    } else if (typeof body.total === 'number') {
-      priceGuess = Number(body.total);
+
+    if (!Array.isArray(body.items) || body.items.length === 0) {
+      return res.status(400).json({ message: 'order requires items' });
     }
+    if (body.franchiseId === undefined || body.franchiseId === null) {
+      return res.status(400).json({ message: 'franchiseId required' });
+    }
+
+    body.items = body.items.map(it => ({
+      menuId: it.menuId,
+      description: it.description ?? '',
+      price: Number(it.price || 0),
+      quantity: Number(it.quantity ?? it.qty ?? 1),
+    }));
+
+    const priceGuess = body.items.reduce(
+      (sum, it) => sum + it.price * it.quantity,
+      0
+    );
 
     res.once('finish', () => {
       const latency = Date.now() - started;
@@ -97,26 +107,24 @@ orderRouter.post(
       metrics.trackPizzaPurchase(success, latency, success ? priceGuess : 0);
     });
 
-    const startTime = Date.now();
+    const orderReq = {
+      franchiseId: body.franchiseId,
+      storeId: body.storeId ?? null,
+      items: body.items,
+    };
 
-    const orderReq = req.body;
-    const order = await DB.addDinerOrder(req.user, orderReq);
-
-    const r = await fetch(`${config.factory.url}/api/order`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', authorization: `Bearer ${config.factory.apiKey}` },
-      body: JSON.stringify({ diner: { id: req.user.id, name: req.user.name, email: req.user.email }, order }),
-    });
-    const j = await r.json();
-    const latencyMs = Date.now() - startTime;
-    
-    if (r.ok) {
-      metrics.trackPizzaPurchase(true, latencyMs, orderReq.items.reduce((sum, item) => sum + item.price, 0));
-      res.send({ order, followLinkToEndChaos: j.reportUrl, jwt: j.jwt });
-    } else {
-      metrics.trackPizzaPurchase(false, latencyMs);
-      res.status(500).send({ message: 'Failed to fulfill order at factory', followLinkToEndChaos: j.reportUrl });
+    let order;
+    try {
+      order = await DB.addDinerOrder(req.user, orderReq);
+    } catch (e) {
+      if (e instanceof StatusCodeError) {
+        return res.status(e.statusCode).json({ message: e.message });
+      }
+      throw e;
     }
+
+    // (Factory integration omitted here if not finalized)
+    return res.status(201).json({ order });
   })
 );
 

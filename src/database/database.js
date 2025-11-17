@@ -23,8 +23,18 @@ class DB {
   async addMenuItem(item) {
     const connection = await this.getConnection();
     try {
-      const addResult = await this.query(connection, `INSERT INTO menu (title, description, image, price) VALUES (?, ?, ?, ?)`, [item.title, item.description, item.image, item.price]);
+      if (!item || !item.title || typeof item.price !== 'number') {
+        throw new StatusCodeError('invalid menu item', 400);
+      }
+      const addResult = await this.query(
+        connection,
+        `INSERT INTO menu (title, description, image, price) VALUES (?, ?, ?, ?)`,
+        [item.title, item.description || '', item.image || '', item.price]
+      );
       return { ...item, id: addResult.insertId };
+    } catch (err) {
+      // use err so no-unused-vars passes
+      throw new StatusCodeError(`unable to add menu item: ${err.message}`, 500);
     } finally {
       connection.end();
     }
@@ -83,38 +93,43 @@ class DB {
 
   async updateUser(userId, name, email, password) {
     const connection = await this.getConnection();
-  try {
-    const [userResult] = await connection.execute('SELECT email FROM user WHERE id=?', [userId]);
-    if (userResult.length === 0) {
-      throw new StatusCodeError('user not found', 404);
-    }
     try {
+      const existing = await this.query(connection, 'SELECT email FROM user WHERE id=?', [userId]);
+      if (existing.length === 0) {
+        throw new StatusCodeError('user not found', 404);
+      }
+
+      const sets = [];
       const params = [];
+
       if (password) {
         const hashedPassword = await bcrypt.hash(password, 10);
-        params.push(`password='${hashedPassword}'`);
+        sets.push('password=?');
+        params.push(hashedPassword);
       }
       if (email) {
-        params.push(`email='${email}'`);
+        sets.push('email=?');
+        params.push(email);
       }
       if (name) {
-        params.push(`name='${name}'`);
+        sets.push('name=?');
+        params.push(name);
       }
-      if (params.length > 0) {
-        const query = `UPDATE user SET ${params.join(', ')} WHERE id=${userId}`;
-        await this.query(connection, query);
+
+      if (sets.length > 0) {
+        await this.query(connection, `UPDATE user SET ${sets.join(', ')} WHERE id=?`, [...params, userId]);
       }
-      return this.getUser(email || userResult[0].email);
+
+      return this.getUser(email || existing[0].email);
     } catch (err) {
       if (err.code === 'ER_DUP_ENTRY') {
         throw new StatusCodeError('email already registered', 409);
       }
       throw err;
+    } finally {
+      connection.end();
     }
-  } finally {
-    connection.end();
   }
-}
 
   async getUsers(authUser, page = 1, limit = 10, nameFilter = '*') {
     const connection = await this.getConnection();
@@ -210,13 +225,96 @@ class DB {
   async addDinerOrder(user, order) {
     const connection = await this.getConnection();
     try {
-      const orderResult = await this.query(connection, `INSERT INTO dinerOrder (dinerId, franchiseId, storeId, date) VALUES (?, ?, ?, now())`, [user.id, order.franchiseId, order.storeId]);
-      const orderId = orderResult.insertId;
-      for (const item of order.items) {
-        const menuId = await this.getID(connection, 'id', item.menuId, 'menu');
-        await this.query(connection, `INSERT INTO orderItem (orderId, menuId, description, price) VALUES (?, ?, ?, ?)`, [orderId, menuId, item.description, item.price]);
+      if (!order || !Array.isArray(order.items) || order.items.length === 0) {
+        throw new StatusCodeError('order requires items', 400);
       }
-      return { ...order, id: orderId };
+      // Require franchiseId
+      if (order.franchiseId === undefined || order.franchiseId === null) {
+        throw new StatusCodeError('franchiseId required', 400);
+      }
+      const franchiseId = Number(order.franchiseId);
+      if (Number.isNaN(franchiseId)) {
+        throw new StatusCodeError('invalid franchiseId', 400);
+      }
+
+      // Optional storeId – if provided must belong to franchise
+      let storeId = null;
+      if (order.storeId !== undefined && order.storeId !== null) {
+        storeId = Number(order.storeId);
+        if (Number.isNaN(storeId)) {
+          throw new StatusCodeError('invalid storeId', 400);
+        }
+        const storeRows = await this.query(
+          connection,
+          'SELECT id FROM store WHERE id=? AND franchiseId=?',
+          [storeId, franchiseId]
+        );
+        if (storeRows.length === 0) {
+          throw new StatusCodeError('store does not belong to franchise', 400);
+        }
+      }
+
+      // Ensure franchise exists
+      const franchiseRows = await this.query(
+        connection,
+        'SELECT id FROM franchise WHERE id=?',
+        [franchiseId]
+      );
+      if (franchiseRows.length === 0) {
+        throw new StatusCodeError('unknown franchise', 404);
+      }
+
+      // Normalize items
+      order.items = order.items.map(it => ({
+        menuId: Number(it.menuId),
+        description: (it.description || '').toString(),
+        price: Number(it.price || 0),
+        quantity: Number(it.quantity ?? it.qty ?? 1),
+      }));
+
+      for (const it of order.items) {
+        if (Number.isNaN(it.menuId)) {
+          throw new StatusCodeError('invalid menuId', 400);
+        }
+        if (Number.isNaN(it.price)) {
+          throw new StatusCodeError('invalid price', 400);
+        }
+        if (Number.isNaN(it.quantity) || it.quantity <= 0) {
+          throw new StatusCodeError('invalid quantity', 400);
+        }
+      }
+
+      // Insert dinerOrder
+      const insertResult = await this.query(
+        connection,
+        'INSERT INTO dinerOrder (dinerId, franchiseId, storeId, date) VALUES (?, ?, ?, now())',
+        [user.id, franchiseId, storeId]
+      );
+      const orderId = insertResult.insertId;
+
+      // Insert items (menu must exist)
+      for (const item of order.items) {
+        const menuIdRows = await this.query(
+          connection,
+          'SELECT id FROM menu WHERE id=?',
+          [item.menuId]
+        );
+        if (menuIdRows.length === 0) {
+          throw new StatusCodeError(`menuId ${item.menuId} not found`, 400);
+        }
+        await this.query(
+          connection,
+          'INSERT INTO orderItem (orderId, menuId, description, price) VALUES (?, ?, ?, ?)',
+          [orderId, item.menuId, item.description, item.price]
+        );
+      }
+
+      return {
+        id: orderId,
+        franchiseId,
+        storeId,
+        items: order.items,
+      };
     } finally {
       connection.end();
     }
@@ -267,7 +365,6 @@ class DB {
 
   async getFranchises(authUser, page = 0, limit = 10, nameFilter = '*') {
     const connection = await this.getConnection();
-
     const offset = page * limit;
     nameFilter = nameFilter.replace(/\*/g, '%');
 
@@ -344,7 +441,7 @@ class DB {
   }
 
   getOffset(currentPage = 1, listPerPage) {
-    return (currentPage - 1) * [listPerPage];
+    return (currentPage - 1) * listPerPage;
   }
 
   getTokenSignature(token) {
@@ -415,7 +512,7 @@ class DB {
 
         if (!dbExists) {
           const defaultAdmin = { name: '常用名字', email: 'a@jwt.com', password: 'admin', roles: [{ role: Role.Admin }] };
-          this.addUser(defaultAdmin);
+          await this.addUser(defaultAdmin);
         }
       } finally {
         connection.end();

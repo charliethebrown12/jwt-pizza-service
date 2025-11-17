@@ -8,6 +8,10 @@ const config = require('./config.js');
 const logger = require('./logger');
 
 const app = express();
+
+// Install HTTP logger BEFORE any other middleware/routers
+app.use(logger.httpLogger);
+
 app.use(express.json());
 app.use(setAuthUser);
 app.use((req, res, next) => {
