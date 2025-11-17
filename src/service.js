@@ -93,6 +93,8 @@ async function callPizzaFactory(payload) {
     throw err;
   }
 }
+// Mark as used and export to avoid ESLint no-unused-vars
+module.exports.callPizzaFactory = callPizzaFactory;
 
 // Export or use callPizzaFactory inside your order creation logic.
 

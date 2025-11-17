@@ -80,20 +80,16 @@ orderRouter.post(
   '/',
   authRouter.authenticateToken,
   asyncHandler(async (req, res) => {
-    const orderReq = req.body;
-    const order = await DB.addDinerOrder(req.user, orderReq);
-
     const started = Date.now();
 
-    // best-effort price estimate from request
+    // best-effort price estimate from request (no try/catch to avoid empty block)
     let priceGuess = 0;
-    try {
-      if (Array.isArray(req.body?.items)) {
-        priceGuess = req.body.items.reduce((s, it) => s + Number(it.price || 0), 0);
-      } else if (typeof req.body?.total === 'number') {
-        priceGuess = Number(req.body.total);
-      }
-    } catch {}
+    const body = req.body || {};
+    if (Array.isArray(body.items)) {
+      priceGuess = body.items.reduce((s, it) => s + Number(it?.price || 0), 0);
+    } else if (typeof body.total === 'number') {
+      priceGuess = Number(body.total);
+    }
 
     res.once('finish', () => {
       const latency = Date.now() - started;
@@ -102,6 +98,9 @@ orderRouter.post(
     });
 
     const startTime = Date.now();
+
+    const orderReq = req.body;
+    const order = await DB.addDinerOrder(req.user, orderReq);
 
     const r = await fetch(`${config.factory.url}/api/order`, {
       method: 'POST',
